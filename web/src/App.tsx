@@ -1,5 +1,6 @@
 import { Editor } from "@monaco-editor/react";
 import { useState, type ChangeEvent } from "react";
+import { useRoomSocket } from "./features/room/useRoomSocket";
 
 const LANGUAGES = ["typescript", "python"] as const;
 
@@ -19,6 +20,7 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] =
     useState<Language>(DEFAULT_LANGUAGE);
   const [currentCode, setCurrentCode] = useState(DEFAULT_SNIPPETS.typescript);
+  const { connectionState } = useRoomSocket();
 
   const renderLanguageOptions = () => {
     const onChangeSelection = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -46,7 +48,7 @@ function App() {
     };
 
     return (
-      <button onClick={handleOnClick} className="border p-1">
+      <button onClick={handleOnClick} className="border px-1">
         Reset
       </button>
     );
@@ -58,12 +60,17 @@ function App() {
     return <span>Line count: {lineCount}</span>;
   };
 
+  const renderConnectionState = () => {
+    return <span>Socket: {connectionState}</span>;
+  };
+
   const renderEditorControls = () => {
     return (
       <div className="flex self-end mt-2 me-2 gap-2">
         {renderLanguageOptions()}
         {renderResetButton()}
         {renderLineCount()}
+        {renderConnectionState()}
       </div>
     );
   };
