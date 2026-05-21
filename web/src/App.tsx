@@ -1,3 +1,4 @@
+import { Editor } from "@monaco-editor/react";
 import { useState, type ChangeEvent } from "react";
 
 const LANGUAGES = ["typescript", "python"] as const;
@@ -39,19 +40,55 @@ function App() {
     );
   };
 
-  const renderCodeEditor = () => {
-    const onChangeCode = (event: ChangeEvent<HTMLTextAreaElement>) => {
-      setCurrentCode(event.target.value);
+  const renderResetButton = () => {
+    const handleOnClick = () => {
+      setCurrentCode(DEFAULT_SNIPPETS[selectedLanguage]);
     };
 
-    return <textarea value={currentCode} onChange={onChangeCode} />;
+    return (
+      <button onClick={handleOnClick} className="border p-1">
+        Reset
+      </button>
+    );
+  };
+
+  const renderLineCount = () => {
+    const lineCount =
+      currentCode.length === 0 ? 1 : currentCode.split("\n").length;
+    return <span>Line count: {lineCount}</span>;
+  };
+
+  const renderEditorControls = () => {
+    return (
+      <div className="flex self-end mt-2 me-2 gap-2">
+        {renderLanguageOptions()}
+        {renderResetButton()}
+        {renderLineCount()}
+      </div>
+    );
+  };
+
+  const renderCodeEditor = () => {
+    const onChangeCode = (value: string | undefined) => {
+      setCurrentCode(value ?? "");
+    };
+
+    return (
+      <Editor
+        height="100%"
+        language={selectedLanguage}
+        theme="vs-dark"
+        value={currentCode}
+        onChange={onChangeCode}
+      />
+    );
   };
 
   return (
-    <>
-      {renderLanguageOptions()}
+    <div className="flex flex-col gap-10 h-screen">
+      {renderEditorControls()}
       {renderCodeEditor()}
-    </>
+    </div>
   );
 }
 
