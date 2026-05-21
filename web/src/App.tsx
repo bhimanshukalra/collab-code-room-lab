@@ -1,5 +1,7 @@
 import { Editor } from "@monaco-editor/react";
 import { useState, type ChangeEvent } from "react";
+import { JoinRoomForm } from "./features/room/JoinRoomForm";
+import { ParticipantsList } from "./features/room/ParticipantsList";
 import { useRoomSocket } from "./features/room/useRoomSocket";
 
 const LANGUAGES = ["typescript", "python"] as const;
@@ -20,7 +22,8 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] =
     useState<Language>(DEFAULT_LANGUAGE);
   const [currentCode, setCurrentCode] = useState(DEFAULT_SNIPPETS.typescript);
-  const { connectionState } = useRoomSocket();
+  const { connectionState, joinedRoom, participants, joinRoom } =
+    useRoomSocket();
 
   const renderLanguageOptions = () => {
     const onChangeSelection = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -60,18 +63,27 @@ function App() {
     return <span>Line count: {lineCount}</span>;
   };
 
-  const renderConnectionState = () => {
-    return <span>Socket: {connectionState}</span>;
-  };
-
   const renderEditorControls = () => {
     return (
       <div className="flex self-end mt-2 me-2 gap-2">
         {renderLanguageOptions()}
         {renderResetButton()}
         {renderLineCount()}
-        {renderConnectionState()}
       </div>
+    );
+  };
+
+  const renderRoomPanel = () => {
+    return (
+      <section className="flex items-center gap-4 px-2 pt-2">
+        <span>Socket: {connectionState}</span>
+        {joinedRoom ? (
+          <span>Room: {joinedRoom.roomId}</span>
+        ) : (
+          <JoinRoomForm onJoinRoom={joinRoom} />
+        )}
+        <ParticipantsList participants={participants} />
+      </section>
     );
   };
 
@@ -92,7 +104,8 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col gap-10 h-screen">
+    <div className="flex h-screen flex-col gap-4">
+      {renderRoomPanel()}
       {renderEditorControls()}
       {renderCodeEditor()}
     </div>
