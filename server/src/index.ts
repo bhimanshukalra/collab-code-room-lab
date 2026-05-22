@@ -9,6 +9,8 @@ type Participant = {
 };
 
 type RoomState = {
+  code: string;
+  language: string;
   participants: Map<string, Participant>;
 };
 
@@ -16,6 +18,15 @@ type JoinRoomPayload = {
   roomId: string;
   name: string;
 };
+
+type CodeChangePayload = {
+  roomId: string;
+  code: string;
+  language: string;
+};
+
+const DEFAULT_CODE = `console.log('Hello world');`;
+const DEFAULT_LANGUAGE = "typescript";
 
 const app = express();
 const server = http.createServer(app);
@@ -52,10 +63,33 @@ io.on("connection", (socket) => {
       joinedAt: new Date().toISOString(),
     });
 
+    socket.emit("room-state", {
+      roomId,
+      code: room.code,
+      language: room.language,
+      participants: getParticipants(room),
+    });
+
     io.to(roomId).emit("participants-change", {
       roomId,
       participants: getParticipants(room),
     });
+  });
+
+  socket.on("code-change", ({ roomId, code, language }: CodeChangePayload) => {
+    const room = rooms.get(roomId);
+
+    if (!room) {
+      socket.emit("room-error", { message: "Room not found." });
+      return;
+    }
+
+    room.code = code;
+    room.language = language;
+
+    socket
+      .to(roomId)
+      .emit("code-change", { roomId, code, language, updatedBy: socket.id });
   });
 
   socket.on("disconnect", () => {
@@ -96,7 +130,11 @@ function getOrCreateRoom(roomId: string) {
     return existingRoom;
   }
 
-  const room = { participants: new Map<string, Participant>() };
+  const room: RoomState = {
+    code: DEFAULT_CODE,
+    language: DEFAULT_LANGUAGE,
+    participants: new Map<string, Participant>(),
+  };
   rooms.set(roomId, room);
   return room;
 }

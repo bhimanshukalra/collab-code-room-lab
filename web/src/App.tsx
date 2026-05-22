@@ -3,10 +3,11 @@ import { useState, type ChangeEvent } from "react";
 import { JoinRoomForm } from "./features/room/JoinRoomForm";
 import { ParticipantsList } from "./features/room/ParticipantsList";
 import { useRoomSocket } from "./features/room/useRoomSocket";
+import type { RoomDocument } from "./features/room/types";
 
 const LANGUAGES = ["typescript", "python"] as const;
 
-type Language = (typeof LANGUAGES)[number];
+export type Language = (typeof LANGUAGES)[number];
 
 const DEFAULT_LANGUAGE = "typescript";
 
@@ -22,15 +23,40 @@ function App() {
   const [selectedLanguage, setSelectedLanguage] =
     useState<Language>(DEFAULT_LANGUAGE);
   const [currentCode, setCurrentCode] = useState(DEFAULT_SNIPPETS.typescript);
-  const { connectionState, joinedRoom, participants, joinRoom } =
-    useRoomSocket();
+
+  const onRoomState = ({ code, language }: RoomDocument) => {
+    setCurrentCode(code);
+    if (isLanguage(language)) {
+      setSelectedLanguage(language);
+    }
+  };
+
+  const onRemoteCodeChange = ({ code, language }: RoomDocument) => {
+    setCurrentCode(code);
+    if (isLanguage(language)) {
+      setSelectedLanguage(language);
+    }
+  };
+
+  const {
+    connectionState,
+    joinedRoom,
+    participants,
+    joinRoom,
+    sendCodeChange,
+    syncState,
+  } = useRoomSocket({ onRoomState, onRemoteCodeChange });
 
   const renderLanguageOptions = () => {
     const onChangeSelection = (event: ChangeEvent<HTMLSelectElement>) => {
       const nextLanguage = event.target.value;
       if (isLanguage(nextLanguage)) {
+        const nextCode = DEFAULT_SNIPPETS[nextLanguage];
         setSelectedLanguage(nextLanguage);
-        setCurrentCode(DEFAULT_SNIPPETS[nextLanguage]);
+        setCurrentCode(nextCode);
+        if (joinedRoom) {
+          sendCodeChange({ code: nextCode, language: nextLanguage });
+        }
       }
     };
 
@@ -47,7 +73,11 @@ function App() {
 
   const renderResetButton = () => {
     const handleOnClick = () => {
-      setCurrentCode(DEFAULT_SNIPPETS[selectedLanguage]);
+      const nextCode = DEFAULT_SNIPPETS[selectedLanguage];
+      setCurrentCode(nextCode);
+      if (joinedRoom) {
+        sendCodeChange({ code: nextCode, language: selectedLanguage });
+      }
     };
 
     return (
@@ -63,12 +93,17 @@ function App() {
     return <span>Line count: {lineCount}</span>;
   };
 
+  const renderSyncState = () => {
+    return <span>Sync: {syncState}</span>;
+  };
+
   const renderEditorControls = () => {
     return (
       <div className="flex self-end mt-2 me-2 gap-2">
         {renderLanguageOptions()}
         {renderResetButton()}
         {renderLineCount()}
+        {renderSyncState()}
       </div>
     );
   };
@@ -89,7 +124,11 @@ function App() {
 
   const renderCodeEditor = () => {
     const onChangeCode = (value: string | undefined) => {
-      setCurrentCode(value ?? "");
+      const nextCode = value ?? "";
+      setCurrentCode(nextCode);
+      if (joinedRoom) {
+        sendCodeChange({ code: nextCode, language: selectedLanguage });
+      }
     };
 
     return (

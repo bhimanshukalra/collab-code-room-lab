@@ -1,22 +1,41 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import type { ConnectionState, JoinedRoom, Participant } from "./types";
+import type {
+  CodeChangePayload,
+  ConnectionState,
+  JoinedRoom,
+  Participant,
+  RoomDocument,
+  RoomStatePayload,
+  SyncState,
+} from "./types";
 
 type ParticipantsChangePayload = {
   roomId: string;
   participants: Participant[];
 };
 
+type UseRoomSocketOptions = {
+  onRoomState: (document: RoomDocument) => void;
+  onRemoteCodeChange: (document: RoomDocument) => void;
+};
+
 const DEFAULT_CONNECTION_STATE: ConnectionState = "connecting";
 const SOCKET_URL = "http://localhost:3000";
 
-export function useRoomSocket() {
+export function useRoomSocket(options: UseRoomSocketOptions) {
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
+  const optionsRef = useRef(options);
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     DEFAULT_CONNECTION_STATE,
   );
   const [joinedRoom, setJoinedRoom] = useState<JoinedRoom | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [syncState, setSyncState] = useState<SyncState>("idle");
+
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   useEffect(() => {
     const socket = io(SOCKET_URL);
@@ -34,11 +53,21 @@ export function useRoomSocket() {
         setParticipants(participants);
       },
     );
+    socket.on("room-state", ({ code, language }: RoomStatePayload) => {
+      optionsRef.current.onRoomState({ code, language });
+      setSyncState("synced");
+    });
+    socket.on("code-change", ({ code, language }: CodeChangePayload) => {
+      optionsRef.current.onRemoteCodeChange({ code, language });
+      setSyncState("synced");
+    });
 
     return () => {
       socket.off("connect");
       socket.off("disconnect");
       socket.off("participants-change");
+      socket.off("room-state");
+      socket.off("code-change");
       socket.disconnect();
       socketRef.current = null;
     };
@@ -55,5 +84,26 @@ export function useRoomSocket() {
     setJoinedRoom(nextRoom);
   }
 
-  return { connectionState, joinedRoom, participants, joinRoom };
+  const sendCodeChange = ({ code, language }: RoomDocument) => {
+    const socket = socketRef.current;
+    if (!socket || !joinedRoom) {
+      return;
+    }
+    setSyncState("syncing");
+    socket.emit("code-change", {
+      roomId: joinedRoom.roomId,
+      code,
+      language,
+    });
+    setSyncState("synced");
+  };
+
+  return {
+    connectionState,
+    joinedRoom,
+    participants,
+    joinRoom,
+    syncState,
+    sendCodeChange,
+  };
 }
