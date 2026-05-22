@@ -22,16 +22,20 @@ export type RoomDocument = {
   language: string;
 };
 
-export type RoomStatePayload = {
+export type YjsSyncPayload = {
   roomId: string;
-  code: string;
   language: string;
-  participants: Participant[];
+  update: Uint8Array;
 };
 
-export type CodeChangePayload = {
+export type YjsUpdatePayload = {
   roomId: string;
-  code: string;
+  update: Uint8Array;
+  updatedBy: string;
+};
+
+export type LanguageChangePayload = {
+  roomId: string;
   language: string;
   updatedBy: string;
 };

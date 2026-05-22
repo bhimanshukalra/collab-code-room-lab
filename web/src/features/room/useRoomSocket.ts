@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import * as Y from "yjs";
 import type {
-  CodeChangePayload,
   ConnectionState,
   JoinedRoom,
+  LanguageChangePayload,
   Participant,
-  RoomDocument,
-  RoomStatePayload,
   SyncState,
+  YjsSyncPayload,
+  YjsUpdatePayload,
 } from "./types";
 
 type ParticipantsChangePayload = {
@@ -16,12 +17,13 @@ type ParticipantsChangePayload = {
 };
 
 type UseRoomSocketOptions = {
-  onRoomState: (document: RoomDocument) => void;
-  onRemoteCodeChange: (document: RoomDocument) => void;
+  doc: Y.Doc;
+  onLanguageChange: (language: string) => void;
 };
 
 const DEFAULT_CONNECTION_STATE: ConnectionState = "connecting";
 const SOCKET_URL = "http://localhost:3000";
+const REMOTE_UPDATE_ORIGIN = "remote";
 
 export function useRoomSocket(options: UseRoomSocketOptions) {
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
@@ -54,14 +56,32 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
         setParticipants(participants);
       },
     );
-    socket.on("room-state", ({ code, language }: RoomStatePayload) => {
-      optionsRef.current.onRoomState({ code, language });
+    socket.on("yjs-sync", ({ update, language }: YjsSyncPayload) => {
+      Y.applyUpdate(optionsRef.current.doc, new Uint8Array(update), REMOTE_UPDATE_ORIGIN);
+      optionsRef.current.onLanguageChange(language);
       setSyncState("synced");
     });
-    socket.on("code-change", ({ code, language }: CodeChangePayload) => {
-      optionsRef.current.onRemoteCodeChange({ code, language });
+    socket.on("yjs-update", ({ update }: YjsUpdatePayload) => {
+      Y.applyUpdate(optionsRef.current.doc, new Uint8Array(update), REMOTE_UPDATE_ORIGIN);
       setSyncState("synced");
     });
+    socket.on("language-change", ({ language }: LanguageChangePayload) => {
+      optionsRef.current.onLanguageChange(language);
+    });
+    const handleDocUpdate = (update: Uint8Array, origin: unknown) => {
+      if (origin === REMOTE_UPDATE_ORIGIN || !joinedRoomRef.current) {
+        return;
+      }
+
+      setSyncState("syncing");
+      socket.emit("yjs-update", {
+        roomId: joinedRoomRef.current.roomId,
+        update,
+      });
+      setSyncState("synced");
+    };
+
+    optionsRef.current.doc.on("update", handleDocUpdate);
     socket.io.on("reconnect_attempt", () => {
       setConnectionState("reconnecting");
     });
@@ -79,8 +99,10 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
       socket.off("connect");
       socket.off("disconnect");
       socket.off("participants-change");
-      socket.off("room-state");
-      socket.off("code-change");
+      socket.off("yjs-sync");
+      socket.off("yjs-update");
+      socket.off("language-change");
+      optionsRef.current.doc.off("update", handleDocUpdate);
       socket.io.off("reconnect_attempt");
       socket.io.off("reconnect");
       socket.io.off("reconnect_failed");
@@ -101,19 +123,18 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
     setJoinedRoom(nextRoom);
   }
 
-  const sendCodeChange = ({ code, language }: RoomDocument) => {
+  function sendLanguageChange(language: string) {
     const socket = socketRef.current;
-    if (!socket || !joinedRoom) {
+
+    if (!socket || !joinedRoomRef.current) {
       return;
     }
-    setSyncState("syncing");
-    socket.emit("code-change", {
-      roomId: joinedRoom.roomId,
-      code,
+
+    socket.emit("language-change", {
+      roomId: joinedRoomRef.current.roomId,
       language,
     });
-    setSyncState("synced");
-  };
+  }
 
   return {
     connectionState,
@@ -121,6 +142,6 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
     participants,
     joinRoom,
     syncState,
-    sendCodeChange,
+    sendLanguageChange,
   };
 }

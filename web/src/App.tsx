@@ -1,9 +1,10 @@
-import { Editor } from "@monaco-editor/react";
-import { useState, type ChangeEvent } from "react";
+import { Editor, type OnMount } from "@monaco-editor/react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { MonacoBinding } from "y-monaco";
+import { useYjsDocument } from "./features/editor/useYjsDocument";
 import { JoinRoomForm } from "./features/room/JoinRoomForm";
 import { ParticipantsList } from "./features/room/ParticipantsList";
 import { useRoomSocket } from "./features/room/useRoomSocket";
-import type { RoomDocument } from "./features/room/types";
 
 const LANGUAGES = ["typescript", "python"] as const;
 
@@ -22,17 +23,11 @@ const isLanguage = (value: string): value is Language =>
 function App() {
   const [selectedLanguage, setSelectedLanguage] =
     useState<Language>(DEFAULT_LANGUAGE);
-  const [currentCode, setCurrentCode] = useState(DEFAULT_SNIPPETS.typescript);
+  const [editorText, setEditorText] = useState("");
+  const bindingRef = useRef<MonacoBinding | null>(null);
+  const { doc, text } = useYjsDocument();
 
-  const onRoomState = ({ code, language }: RoomDocument) => {
-    setCurrentCode(code);
-    if (isLanguage(language)) {
-      setSelectedLanguage(language);
-    }
-  };
-
-  const onRemoteCodeChange = ({ code, language }: RoomDocument) => {
-    setCurrentCode(code);
+  const handleLanguageChange = (language: string) => {
     if (isLanguage(language)) {
       setSelectedLanguage(language);
     }
@@ -43,9 +38,29 @@ function App() {
     joinedRoom,
     participants,
     joinRoom,
-    sendCodeChange,
+    sendLanguageChange,
     syncState,
-  } = useRoomSocket({ onRoomState, onRemoteCodeChange });
+  } = useRoomSocket({ doc, onLanguageChange: handleLanguageChange });
+
+  useEffect(() => {
+    const updateEditorText = () => {
+      setEditorText(text.toString());
+    };
+
+    updateEditorText();
+    text.observe(updateEditorText);
+
+    return () => {
+      text.unobserve(updateEditorText);
+    };
+  }, [text]);
+
+  useEffect(() => {
+    return () => {
+      bindingRef.current?.destroy();
+      bindingRef.current = null;
+    };
+  }, []);
 
   const renderLanguageOptions = () => {
     const onChangeSelection = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -53,10 +68,8 @@ function App() {
       if (isLanguage(nextLanguage)) {
         const nextCode = DEFAULT_SNIPPETS[nextLanguage];
         setSelectedLanguage(nextLanguage);
-        setCurrentCode(nextCode);
-        if (joinedRoom) {
-          sendCodeChange({ code: nextCode, language: nextLanguage });
-        }
+        replaceEditorText(nextCode);
+        sendLanguageChange(nextLanguage);
       }
     };
 
@@ -74,10 +87,7 @@ function App() {
   const renderResetButton = () => {
     const handleOnClick = () => {
       const nextCode = DEFAULT_SNIPPETS[selectedLanguage];
-      setCurrentCode(nextCode);
-      if (joinedRoom) {
-        sendCodeChange({ code: nextCode, language: selectedLanguage });
-      }
+      replaceEditorText(nextCode);
     };
 
     return (
@@ -88,8 +98,7 @@ function App() {
   };
 
   const renderLineCount = () => {
-    const lineCount =
-      currentCode.length === 0 ? 1 : currentCode.split("\n").length;
+    const lineCount = editorText.length === 0 ? 1 : editorText.split("\n").length;
     return <span>Line count: {lineCount}</span>;
   };
 
@@ -123,23 +132,32 @@ function App() {
   };
 
   const renderCodeEditor = () => {
-    const onChangeCode = (value: string | undefined) => {
-      const nextCode = value ?? "";
-      setCurrentCode(nextCode);
-      if (joinedRoom) {
-        sendCodeChange({ code: nextCode, language: selectedLanguage });
+    const handleEditorMount: OnMount = (editor) => {
+      const model = editor.getModel();
+
+      if (!model) {
+        return;
       }
+
+      bindingRef.current?.destroy();
+      bindingRef.current = new MonacoBinding(text, model, new Set([editor]));
     };
 
     return (
       <Editor
         height="100%"
         language={selectedLanguage}
+        onMount={handleEditorMount}
         theme="vs-dark"
-        value={currentCode}
-        onChange={onChangeCode}
       />
     );
+  };
+
+  const replaceEditorText = (nextCode: string) => {
+    text.doc?.transact(() => {
+      text.delete(0, text.length);
+      text.insert(0, nextCode);
+    });
   };
 
   return (

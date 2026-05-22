@@ -1,6 +1,7 @@
 import express from "express";
 import http from "node:http";
 import { Server } from "socket.io";
+import * as Y from "yjs";
 
 type Participant = {
   id: string;
@@ -9,7 +10,7 @@ type Participant = {
 };
 
 type RoomState = {
-  code: string;
+  doc: Y.Doc;
   language: string;
   participants: Map<string, Participant>;
 };
@@ -19,9 +20,13 @@ type JoinRoomPayload = {
   name: string;
 };
 
-type CodeChangePayload = {
+type YjsUpdatePayload = {
   roomId: string;
-  code: string;
+  update: Uint8Array;
+};
+
+type LanguageChangePayload = {
+  roomId: string;
   language: string;
 };
 
@@ -64,11 +69,10 @@ io.on("connection", (socket) => {
       joinedAt: new Date().toISOString(),
     });
 
-    socket.emit("room-state", {
+    socket.emit("yjs-sync", {
       roomId,
-      code: room.code,
+      update: Y.encodeStateAsUpdate(room.doc),
       language: room.language,
-      participants: getParticipants(room),
     });
 
     io.to(roomId).emit("participants-change", {
@@ -77,7 +81,7 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("code-change", ({ roomId, code, language }: CodeChangePayload) => {
+  socket.on("yjs-update", ({ roomId, update }: YjsUpdatePayload) => {
     const room = rooms.get(roomId);
 
     if (!room) {
@@ -85,13 +89,32 @@ io.on("connection", (socket) => {
       return;
     }
 
-    room.code = code;
-    room.language = language;
-
-    socket
-      .to(roomId)
-      .emit("code-change", { roomId, code, language, updatedBy: socket.id });
+    Y.applyUpdate(room.doc, update);
+    socket.to(roomId).emit("yjs-update", {
+      roomId,
+      update,
+      updatedBy: socket.id,
+    });
   });
+
+  socket.on(
+    "language-change",
+    ({ roomId, language }: LanguageChangePayload) => {
+      const room = rooms.get(roomId);
+
+      if (!room) {
+        socket.emit("room-error", { message: "Room not found." });
+        return;
+      }
+
+      room.language = language;
+      socket.to(roomId).emit("language-change", {
+        roomId,
+        language,
+        updatedBy: socket.id,
+      });
+    },
+  );
 
   socket.on("disconnect", () => {
     console.log(`Socket disconnected: ${socket.id}`);
@@ -115,6 +138,7 @@ io.on("connection", (socket) => {
     });
 
     if (room.participants.size === 0) {
+      room.doc.destroy();
       rooms.delete(roomId);
     }
   });
@@ -131,8 +155,11 @@ function getOrCreateRoom(roomId: string) {
     return existingRoom;
   }
 
+  const doc = new Y.Doc();
+  doc.getText("code").insert(0, DEFAULT_CODE);
+
   const room: RoomState = {
-    code: DEFAULT_CODE,
+    doc,
     language: DEFAULT_LANGUAGE,
     participants: new Map<string, Participant>(),
   };
