@@ -32,6 +32,7 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
   const [joinedRoom, setJoinedRoom] = useState<JoinedRoom | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [syncState, setSyncState] = useState<SyncState>("idle");
+  const joinedRoomRef = useRef<JoinedRoom>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -61,6 +62,18 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
       optionsRef.current.onRemoteCodeChange({ code, language });
       setSyncState("synced");
     });
+    socket.io.on("reconnect_attempt", () => {
+      setConnectionState("reconnecting");
+    });
+    socket.io.on("reconnect", () => {
+      setConnectionState("connected");
+      if (joinedRoomRef.current) {
+        socket.emit("join-room", joinedRoomRef.current);
+      }
+    });
+    socket.io.on("reconnect_failed", () => {
+      setConnectionState("disconnected");
+    });
 
     return () => {
       socket.off("connect");
@@ -68,6 +81,9 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
       socket.off("participants-change");
       socket.off("room-state");
       socket.off("code-change");
+      socket.io.off("reconnect_attempt");
+      socket.io.off("reconnect");
+      socket.io.off("reconnect_failed");
       socket.disconnect();
       socketRef.current = null;
     };
@@ -81,6 +97,7 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
     }
 
     socket.emit("join-room", nextRoom);
+    joinedRoomRef.current = nextRoom;
     setJoinedRoom(nextRoom);
   }
 
