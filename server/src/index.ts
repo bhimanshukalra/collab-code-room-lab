@@ -56,6 +56,7 @@ io.on("connection", (socket) => {
 
     socket.join(roomId);
     socket.data.roomId = roomId;
+    socket.data.name = name;
 
     room.participants.set(socket.id, {
       id: socket.id,

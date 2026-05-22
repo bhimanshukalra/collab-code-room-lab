@@ -32,7 +32,7 @@ export function useRoomSocket(options: UseRoomSocketOptions) {
   const [joinedRoom, setJoinedRoom] = useState<JoinedRoom | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [syncState, setSyncState] = useState<SyncState>("idle");
-  const joinedRoomRef = useRef<JoinedRoom>(null);
+  const joinedRoomRef = useRef<JoinedRoom | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
