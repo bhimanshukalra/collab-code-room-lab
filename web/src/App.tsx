@@ -1,14 +1,25 @@
 import { Editor, type OnMount } from "@monaco-editor/react";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { MonacoBinding } from "y-monaco";
+import * as Y from "yjs";
 import { useYjsDocument } from "./features/editor/useYjsDocument";
 import { JoinRoomForm } from "./features/room/JoinRoomForm";
 import { ParticipantsList } from "./features/room/ParticipantsList";
 import { useRoomSocket } from "./features/room/useRoomSocket";
+import { getParticipantColor } from "./utils";
 
 const LANGUAGES = ["typescript", "python"] as const;
 
 export type Language = (typeof LANGUAGES)[number];
+
+type MonacoEditor = Parameters<OnMount>[0];
+type MonacoInstance = Parameters<OnMount>[1];
 
 const DEFAULT_LANGUAGE = "typescript";
 
@@ -25,7 +36,10 @@ function App() {
     useState<Language>(DEFAULT_LANGUAGE);
   const [editorText, setEditorText] = useState("");
   const bindingRef = useRef<MonacoBinding | null>(null);
-  const { doc, text } = useYjsDocument();
+  const editorRef = useRef<MonacoEditor | null>(null);
+  const monacoRef = useRef<MonacoInstance | null>(null);
+  const selectionListenerRef = useRef<{ dispose: () => void } | null>(null);
+  const { doc, text, awareness } = useYjsDocument();
 
   const handleLanguageChange = (language: string) => {
     if (isLanguage(language)) {
@@ -40,7 +54,51 @@ function App() {
     joinRoom,
     sendLanguageChange,
     syncState,
-  } = useRoomSocket({ doc, onLanguageChange: handleLanguageChange });
+  } = useRoomSocket({ doc, onLanguageChange: handleLanguageChange, awareness });
+
+  const syncAwarenessSelection = useCallback(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    const selection = editor?.getSelection();
+
+    if (!editor || !model || !monaco || !selection) {
+      return;
+    }
+
+    let anchor = model.getOffsetAt(selection.getStartPosition());
+    let head = model.getOffsetAt(selection.getEndPosition());
+
+    if (selection.getDirection() === monaco.SelectionDirection.RTL) {
+      const nextAnchor = head;
+      head = anchor;
+      anchor = nextAnchor;
+    }
+
+    awareness.setLocalState({
+      ...(awareness.getLocalState() ?? {}),
+      selection: {
+        anchor: Y.createRelativePositionFromTypeIndex(text, anchor),
+        head: Y.createRelativePositionFromTypeIndex(text, head),
+      },
+    });
+  }, [awareness, text]);
+
+  useEffect(() => {
+    if (!joinedRoom) {
+      awareness.setLocalState(null);
+      return;
+    }
+
+    awareness.setLocalState({
+      ...(awareness.getLocalState() ?? {}),
+      user: {
+        name: joinedRoom.name,
+        color: getParticipantColor(joinedRoom.name),
+      },
+    });
+    syncAwarenessSelection();
+  }, [awareness, joinedRoom, syncAwarenessSelection]);
 
   useEffect(() => {
     const updateEditorText = () => {
@@ -57,8 +115,12 @@ function App() {
 
   useEffect(() => {
     return () => {
+      selectionListenerRef.current?.dispose();
+      selectionListenerRef.current = null;
       bindingRef.current?.destroy();
       bindingRef.current = null;
+      editorRef.current = null;
+      monacoRef.current = null;
     };
   }, []);
 
@@ -98,7 +160,8 @@ function App() {
   };
 
   const renderLineCount = () => {
-    const lineCount = editorText.length === 0 ? 1 : editorText.split("\n").length;
+    const lineCount =
+      editorText.length === 0 ? 1 : editorText.split("\n").length;
     return <span>Line count: {lineCount}</span>;
   };
 
@@ -132,15 +195,26 @@ function App() {
   };
 
   const renderCodeEditor = () => {
-    const handleEditorMount: OnMount = (editor) => {
+    const handleEditorMount: OnMount = (editor, monaco) => {
       const model = editor.getModel();
 
       if (!model) {
         return;
       }
 
+      editorRef.current = editor;
+      monacoRef.current = monaco;
+      selectionListenerRef.current?.dispose();
       bindingRef.current?.destroy();
-      bindingRef.current = new MonacoBinding(text, model, new Set([editor]));
+      bindingRef.current = new MonacoBinding(
+        text,
+        model,
+        new Set([editor]),
+        awareness,
+      );
+      selectionListenerRef.current =
+        editor.onDidChangeCursorSelection(syncAwarenessSelection);
+      syncAwarenessSelection();
     };
 
     return (

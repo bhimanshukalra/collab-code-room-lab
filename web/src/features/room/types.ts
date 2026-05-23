@@ -39,3 +39,14 @@ export type LanguageChangePayload = {
   language: string;
   updatedBy: string;
 };
+
+export type AwarenessUpdatePayload = {
+  roomId: string;
+  update: Uint8Array;
+  updatedBy: string;
+};
+
+export type AwarenessUser = {
+  name: string;
+  color: string;
+};

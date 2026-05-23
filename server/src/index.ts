@@ -30,6 +30,11 @@ type LanguageChangePayload = {
   language: string;
 };
 
+type AwarenessUpdatePayload = {
+  roomId: string;
+  update: Uint8Array;
+};
+
 const DEFAULT_CODE = `console.log('Hello world');`;
 const DEFAULT_LANGUAGE = "typescript";
 
@@ -113,6 +118,22 @@ io.on("connection", (socket) => {
         language,
         updatedBy: socket.id,
       });
+    },
+  );
+
+  socket.on(
+    "awareness-update",
+    ({ roomId, update }: AwarenessUpdatePayload) => {
+      const room = rooms.get(roomId);
+
+      if (!room) {
+        socket.emit("room-error", { message: "Room not found." });
+        return;
+      }
+
+      socket
+        .to(roomId)
+        .emit("awareness-update", { roomId, update, updatedBy: socket.id });
     },
   );
 
