@@ -3,3 +3,5 @@ node_modules
 .pnpm-store
 
 server/data
+
+.DS_Store
