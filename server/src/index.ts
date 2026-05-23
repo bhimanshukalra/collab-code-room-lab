@@ -2,6 +2,8 @@ import express from "express";
 import http from "node:http";
 import { Server } from "socket.io";
 import * as Y from "yjs";
+import { loadRoomDocument } from "./persistence.js";
+import { saveRoomNow, scheduleRoomSave } from "./utils.js";
 
 type Participant = {
   id: string;
@@ -9,7 +11,7 @@ type Participant = {
   joinedAt: string;
 };
 
-type RoomState = {
+export type RoomState = {
   doc: Y.Doc;
   language: string;
   participants: Map<string, Participant>;
@@ -61,8 +63,8 @@ const rooms = new Map<string, RoomState>();
 io.on("connection", (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
-  socket.on("join-room", ({ roomId, name }: JoinRoomPayload) => {
-    const room = getOrCreateRoom(roomId);
+  socket.on("join-room", async ({ roomId, name }: JoinRoomPayload) => {
+    const room = await getOrCreateRoom(roomId);
 
     socket.join(roomId);
     socket.data.roomId = roomId;
@@ -86,7 +88,7 @@ io.on("connection", (socket) => {
     });
   });
 
-  socket.on("yjs-update", ({ roomId, update }: YjsUpdatePayload) => {
+  socket.on("yjs-update", async ({ roomId, update }: YjsUpdatePayload) => {
     const room = rooms.get(roomId);
 
     if (!room) {
@@ -95,6 +97,9 @@ io.on("connection", (socket) => {
     }
 
     Y.applyUpdate(room.doc, update);
+
+    scheduleRoomSave(roomId, room);
+
     socket.to(roomId).emit("yjs-update", {
       roomId,
       update,
@@ -104,7 +109,7 @@ io.on("connection", (socket) => {
 
   socket.on(
     "language-change",
-    ({ roomId, language }: LanguageChangePayload) => {
+    async ({ roomId, language }: LanguageChangePayload) => {
       const room = rooms.get(roomId);
 
       if (!room) {
@@ -113,6 +118,9 @@ io.on("connection", (socket) => {
       }
 
       room.language = language;
+
+      scheduleRoomSave(roomId, room);
+
       socket.to(roomId).emit("language-change", {
         roomId,
         language,
@@ -138,6 +146,10 @@ io.on("connection", (socket) => {
   );
 
   socket.on("disconnect", () => {
+    void handleDisconnect();
+  });
+
+  async function handleDisconnect() {
     console.log(`Socket disconnected: ${socket.id}`);
     const roomId = socket.data.roomId as string | undefined;
 
@@ -159,29 +171,39 @@ io.on("connection", (socket) => {
     });
 
     if (room.participants.size === 0) {
+      try {
+        await saveRoomNow(roomId, room);
+      } catch (error) {
+        console.error(`Failed to save room ${roomId} before cleanup`, error);
+      }
+
       room.doc.destroy();
       rooms.delete(roomId);
     }
-  });
+  }
 });
 
 server.listen(PORT, () => {
   console.log(`Node server running at ${PORT}`);
 });
 
-function getOrCreateRoom(roomId: string) {
+async function getOrCreateRoom(roomId: string) {
   const existingRoom = rooms.get(roomId);
 
   if (existingRoom) {
     return existingRoom;
   }
 
-  const doc = new Y.Doc();
-  doc.getText("code").insert(0, DEFAULT_CODE);
+  const persistedRoom = await loadRoomDocument(roomId);
+  const doc = persistedRoom?.doc ?? new Y.Doc();
+
+  if (!persistedRoom) {
+    doc.getText("code").insert(0, DEFAULT_CODE);
+  }
 
   const room: RoomState = {
     doc,
-    language: DEFAULT_LANGUAGE,
+    language: persistedRoom?.language ?? DEFAULT_LANGUAGE,
     participants: new Map<string, Participant>(),
   };
   rooms.set(roomId, room);
