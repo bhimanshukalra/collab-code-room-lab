@@ -247,6 +247,67 @@ Acceptance check:
 - Two users can type at the same time without obvious overwrite bugs.
 - Remote participant presence still works.
 
+## Phase 7: Remote Cursors And Selections
+
+Use Yjs awareness to show where other participants are working in the editor.
+
+Why:
+
+- Text sync is useful, but collaboration feels incomplete without cursor and selection presence.
+- Awareness is designed for ephemeral state such as user name, color, cursor, selection, and typing status.
+- Cursor state should not be stored as durable document state.
+
+Tasks:
+
+- Create an awareness instance for the current room/document connection.
+- Set local awareness state with participant name and a stable color.
+- Bind Monaco selections to awareness through `MonacoBinding`.
+- Render remote cursors and selections in Monaco.
+- Keep the existing participants list working.
+- Clear awareness state when leaving or disconnecting.
+
+Acceptance check:
+
+- Open two browser tabs in the same room.
+- Move the cursor or select text in tab A.
+- Tab B shows tab A's cursor or selection.
+- Participant text edits still sync through Yjs.
+- Closing tab A removes its cursor or selection from tab B.
+
+## Phase 8: Optional Persistence
+
+Only add persistence if rooms need to survive server restarts.
+
+Why:
+
+- The current server stores room state in memory.
+- In-memory rooms are enough for the learning spike.
+- Persistence adds storage design, cleanup policy, and migration concerns.
+
+Options:
+
+- Store periodic Yjs snapshots per room.
+- Store incremental Yjs updates and replay them on room creation.
+- Store both snapshots and recent updates so startup does not require replaying a long history.
+
+Tasks:
+
+- Choose a storage target such as SQLite, Postgres, Redis, or file-based snapshots.
+- Save room document updates or snapshots when the server receives `yjs-update`.
+- Restore the room `Y.Doc` from storage when the first participant joins.
+- Decide when old rooms expire.
+- Add a manual cleanup path for stale room data.
+- Keep persistence out of participant presence and awareness state.
+
+Acceptance check:
+
+- Join a room and type code.
+- Stop the server.
+- Restart the server.
+- Rejoin the same room.
+- The latest persisted document state is restored.
+- Remote cursors and participant presence do not persist after restart.
+
 ## Implementation Notes
 
 Keep the server as the room authority.
